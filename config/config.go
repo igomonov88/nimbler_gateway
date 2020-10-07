@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Web    Web    `yaml:"web"`
 	Zipkin Zipkin `yaml:"zipkin"`
+	Server Server `yaml:"server"`
 }
 
 type Web struct {
@@ -26,6 +27,13 @@ type Zipkin struct {
 	ReporterURI   string  `yaml:"reporter_uri"`
 	ServiceName   string  `yaml:"service_name"`
 	Probability   float64 `yaml:"probability"`
+}
+
+type Server struct {
+	APIHost         string        `yaml:"api_host"`
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	ShutdownTimeout time.Duration `yaml:"shutdown_timeout"`
 }
 
 func Parse(filePath string) (*Config, error) {

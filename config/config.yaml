@@ -1,6 +1,6 @@
 web:
   api_host: 0.0.0.0:5000
-  debug_host: 0.0.0.0:6000
+  debug_host: 0.0.0.0:6060
   read_timeout: 5
   write_timeout: 5
   shutdown_timeout: 5
@@ -9,3 +9,8 @@ zipkin:
   reporter_uri: http://zipkin:9411/api/v2/spans
   service_name: gateway
   probability: 0.05
+server:
+  api_host: 0.0.0.0:7000
+  read_timeout: 5
+  write_timeout: 5
+  shutdown_timeout: 5
