@@ -3,25 +3,38 @@ package main
 import (
 	"context"
 	"expvar"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"contrib.go.opencensus.io/exporter/zipkin"
+	"github.com/ardanlabs/conf"
+	srv "github.com/igomonov88/nimbler_server/proto"
+	openzipkin "github.com/openzipkin/zipkin-go"
+	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
 
-	"contrib.go.opencensus.io/exporter/zipkin"
-	openzipkin "github.com/openzipkin/zipkin-go"
-	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
-
-	srv "github.com/igomonov88/nimbler_server/proto"
-
-	handler "nimbler_gateway/cmd/internal/handlers"
-	"nimbler_gateway/config"
+	handlers "nimbler_gateway/cmd/api/internal/handlers"
 )
+
+/*
+ZipKin: http://localhost:9411
+AddLoad: hey -m GET -c 10 -n 10000 "http://localhost:3000/v1/create_url"
+expvarmon -ports=":4000" -vars="build,requests,goroutines,errors,mem:memstats.Alloc"
+*/
+
+/*
+Need to figure out timeouts for http service.
+You might want to reset your DB_HOST env var during test tear down.
+Service should start even without a DB running yet.
+symbols in profiles: https://github.com/golang/go/issues/23376 / https://github.com/google/pprof/pull/366
+*/
 
 // build is the git version of this program. It is set using build flags in the
 // makefile.
@@ -35,40 +48,64 @@ func main() {
 }
 
 func run() error {
-	// =====================  Logging  ========================
+	// =========================================================================
+	// Logging
 
 	log := log.New(os.Stdout, "GATEWAY : ", log.LstdFlags|log.Lmicroseconds|log.Lshortfile)
 
-	// ================== Read Configuration ==================
-
-	cfg, err := config.Parse("config/config.yaml")
-	if err != nil {
-		return errors.Wrap(err, "failed to read config file")
+	// =========================================================================
+	// Configuration
+	var cfg struct {
+		Web struct {
+			APIHost         string        `conf:"default:0.0.0.0:3000"`
+			DebugHost       string        `conf:"default:0.0.0.0:4000"`
+			ReadTimeout     time.Duration `conf:"default:5s"`
+			WriteTimeout    time.Duration `conf:"default:5s"`
+			ShutdownTimeout time.Duration `conf:"default:5s"`
+		}
+		Zipkin struct {
+			LocalEndpoint string  `conf:"default:0.0.0.0:3000"`
+			ReporterURI   string  `conf:"default:http://zipkin:9411/api/v2/spans"`
+			ServiceName   string  `conf:"default:gateway"`
+			Probability   float64 `conf:"default:0.05"`
+		}
+		Server struct {
+			APIHost         string        `conf:"default:0.0.0.0:6000"`
+			DebugHost       string        `conf:"default:0.0.0.0:7000"`
+			ReadTimeout     time.Duration `conf:"default:5s"`
+			WriteTimeout    time.Duration `conf:"default:5s"`
+			ShutdownTimeout time.Duration `conf:"default:5s"`
+		}
 	}
 
-	// ======================  App Starting ====================
+	if err := conf.Parse(os.Args[1:], "GATEWAY", &cfg); err != nil {
+		if err == conf.ErrHelpWanted {
+			usage, err := conf.Usage("GATEWAY", &cfg)
+			if err != nil {
+				return errors.Wrap(err, "generating config usage")
+			}
+			fmt.Println(usage)
+			return nil
+		}
+		return errors.Wrap(err, "parsing config")
+	}
+
+	// =========================================================================
+	// App Starting
 
 	// Print the build version for our logs. Also expose it under /debug/vars.
 	expvar.NewString("build").Set(build)
 	log.Printf("main : Started : Application initializing : version %q", build)
 	defer log.Println("main : Completed")
 
-	log.Println("main : Started : Initializing  support")
-
-	// ============= Connect to appropriate servers ============
-
-	conn, err := grpc.DialContext(context.Background(), cfg.Server.APIHost, grpc.WithInsecure())
+	out, err := conf.String(&cfg)
 	if err != nil {
-		return errors.Wrap(err, "failed to create grpc connection")
+		return errors.Wrap(err, "generating config for output")
 	}
-	srvClient := srv.NewServerClient(conn)
+	log.Printf("main : Config :\n%v\n", out)
 
-	defer func() {
-		log.Printf("main : Server Connection Stopping : %s", cfg.Server.APIHost)
-		conn.Close()
-	}()
-
-	// ================= Start Tracing Support =================
+	// =========================================================================
+	// Start Tracing Support
 
 	log.Println("main : Started : Initializing zipkin tracing support")
 
@@ -90,7 +127,22 @@ func run() error {
 		reporter.Close()
 	}()
 
-	// =================== Start Debug Service ===================
+	// =========================================================================
+	// Start Server Connection
+	log.Println("main : Started : Initializing server grpc connection")
+	conn, err := grpc.Dial(cfg.Server.APIHost, grpc.WithInsecure())
+	if err != nil {
+		return errors.Wrap(err, "failed to connect to grpc server")
+	}
+
+	srvClient := srv.NewServerClient(conn)
+
+	defer func() {
+		log.Printf("main : GRPC Connection Stopping : %s", cfg.Server.APIHost)
+		conn.Close()
+	}()
+	// =========================================================================
+	// Start Debug Service
 	//
 	// /debug/pprof - Added to the default mux by importing the net/http/pprof package.
 	// /debug/vars - Added to the default mux by importing the expvar package.
@@ -104,7 +156,8 @@ func run() error {
 		log.Printf("main : Debug Listener closed : %v", http.ListenAndServe(cfg.Web.DebugHost, http.DefaultServeMux))
 	}()
 
-	// ==================== Start API Service  =====================
+	// =========================================================================
+	// Start API Service
 
 	log.Println("main : Started : Initializing API support")
 
@@ -115,7 +168,7 @@ func run() error {
 
 	api := http.Server{
 		Addr:         cfg.Web.APIHost,
-		Handler:      handler.API(build, shutdown, log, srvClient),
+		Handler:      handlers.API(build, shutdown, log, srvClient),
 		ReadTimeout:  cfg.Web.ReadTimeout,
 		WriteTimeout: cfg.Web.WriteTimeout,
 	}
@@ -130,7 +183,8 @@ func run() error {
 		serverErrors <- api.ListenAndServe()
 	}()
 
-	// ====================  Shutdown  =============================
+	// =========================================================================
+	// Shutdown
 
 	// Blocking main and waiting for shutdown.
 	select {

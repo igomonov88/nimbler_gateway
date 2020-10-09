@@ -4,9 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"go.opencensus.io/trace"
-
 	srv "github.com/igomonov88/nimbler_server/proto"
+	"go.opencensus.io/trace"
 
 	"nimbler_gateway/internal/platform/web"
 )
@@ -14,7 +13,7 @@ import (
 // Check provides support for orchestration health checks.
 type Check struct {
 	build string
-	srv srv.ServerClient
+	srv   srv.ServerClient
 }
 
 // Health validates the service is healthy and ready to accept requests.
@@ -32,12 +31,11 @@ func (c *Check) Health(ctx context.Context, w http.ResponseWriter, r *http.Reque
 
 	resp, err := c.srv.HealthCheck(ctx, nil)
 	if err != nil {
-
 		// If the one of the depending services is not ready we will tell the client and use a 500
 		// status. Do not respond by just returning an error because further up in
 		// the call stack will interpret that as an unhandled error.
 
-		health.Status = "servers not ready"
+		health.Status = "service is not ready"
 		return web.Respond(ctx, w, health, http.StatusInternalServerError)
 	}
 	health.Status = "ok"
