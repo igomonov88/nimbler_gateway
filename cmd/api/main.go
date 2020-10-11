@@ -13,7 +13,8 @@ import (
 
 	"contrib.go.opencensus.io/exporter/zipkin"
 	"github.com/ardanlabs/conf"
-	srv "github.com/igomonov88/nimbler_server/proto"
+	reader "github.com/igomonov88/nimbler_reader/proto"
+	writer "github.com/igomonov88/nimbler_writer/proto"
 	openzipkin "github.com/openzipkin/zipkin-go"
 	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
 	"github.com/pkg/errors"
@@ -69,9 +70,16 @@ func run() error {
 			ServiceName   string  `conf:"default:gateway"`
 			Probability   float64 `conf:"default:0.05"`
 		}
-		Server struct {
+		ReaderServer struct {
 			APIHost         string        `conf:"default:0.0.0.0:6000"`
 			DebugHost       string        `conf:"default:0.0.0.0:7000"`
+			ReadTimeout     time.Duration `conf:"default:5s"`
+			WriteTimeout    time.Duration `conf:"default:5s"`
+			ShutdownTimeout time.Duration `conf:"default:5s"`
+		}
+		WriterServer struct {
+			APIHost         string        `conf:"default:0.0.0.0:7000"`
+			DebugHost       string        `conf:"default:0.0.0.0:8000"`
 			ReadTimeout     time.Duration `conf:"default:5s"`
 			WriteTimeout    time.Duration `conf:"default:5s"`
 			ShutdownTimeout time.Duration `conf:"default:5s"`
@@ -128,18 +136,22 @@ func run() error {
 	}()
 
 	// =========================================================================
-	// Start Server Connection
+	// Start ReaderServer Connection
 	log.Println("main : Started : Initializing server grpc connection")
-	conn, err := grpc.Dial(cfg.Server.APIHost, grpc.WithInsecure())
+	readerConn, err := grpc.Dial(cfg.ReaderServer.APIHost, grpc.WithInsecure())
 	if err != nil {
-		return errors.Wrap(err, "failed to connect to grpc server")
+		return errors.Wrap(err, "failed to connect to grpc reader server")
+	}
+	writerConn, err := grpc.Dial(cfg.WriterServer.APIHost, grpc.WithInsecure())
+	if err != nil {
+		return errors.Wrap(err, "failed to connect to grpc writer server")
 	}
 
-	srvClient := srv.NewServerClient(conn)
-
+	writerClient := writer.NewWriterClient(readerConn)
+	readerClient := reader.NewReaderClient(writerConn)
 	defer func() {
-		log.Printf("main : GRPC Connection Stopping : %s", cfg.Server.APIHost)
-		conn.Close()
+		log.Printf("main : GRPC Connection Stopping : %s", cfg.ReaderServer.APIHost)
+		readerConn.Close()
 	}()
 	// =========================================================================
 	// Start Debug Service
@@ -168,7 +180,7 @@ func run() error {
 
 	api := http.Server{
 		Addr:         cfg.Web.APIHost,
-		Handler:      handlers.API(build, shutdown, log, srvClient),
+		Handler:      handlers.API(build, shutdown, log, writerClient, readerClient),
 		ReadTimeout:  cfg.Web.ReadTimeout,
 		WriteTimeout: cfg.Web.WriteTimeout,
 	}
