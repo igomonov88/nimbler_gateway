@@ -16,7 +16,8 @@ import (
 	reader "github.com/igomonov88/nimbler_reader/proto"
 	writer "github.com/igomonov88/nimbler_writer/proto"
 	openzipkin "github.com/openzipkin/zipkin-go"
-	zipkinHTTP "github.com/openzipkin/zipkin-go/reporter/http"
+	zipkingrpc "github.com/openzipkin/zipkin-go/middleware/grpc"
+	logreporter "github.com/openzipkin/zipkin-go/reporter/log"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
@@ -72,14 +73,14 @@ func run() error {
 		}
 		ReaderServer struct {
 			APIHost         string        `conf:"default:0.0.0.0:6000"`
-			DebugHost       string        `conf:"default:0.0.0.0:7000"`
+			DebugHost       string        `conf:"default:0.0.0.0:8000"`
 			ReadTimeout     time.Duration `conf:"default:5s"`
 			WriteTimeout    time.Duration `conf:"default:5s"`
 			ShutdownTimeout time.Duration `conf:"default:5s"`
 		}
 		WriterServer struct {
-			APIHost         string        `conf:"default:0.0.0.0:7000"`
-			DebugHost       string        `conf:"default:0.0.0.0:8000"`
+			APIHost         string        `conf:"default:0.0.0.0:5000"`
+			DebugHost       string        `conf:"default:0.0.0.0:6000"`
 			ReadTimeout     time.Duration `conf:"default:5s"`
 			WriteTimeout    time.Duration `conf:"default:5s"`
 			ShutdownTimeout time.Duration `conf:"default:5s"`
@@ -117,18 +118,22 @@ func run() error {
 
 	log.Println("main : Started : Initializing zipkin tracing support")
 
-	localEndpoint, err := openzipkin.NewEndpoint(cfg.Zipkin.ServiceName, cfg.Zipkin.LocalEndpoint)
+	reporter := logreporter.NewReporter(log)
+	zipkinEndpoint, err := openzipkin.NewEndpoint(cfg.Zipkin.ServiceName,cfg.Zipkin.LocalEndpoint)
 	if err != nil {
 		return err
 	}
 
-	reporter := zipkinHTTP.NewReporter(cfg.Zipkin.ReporterURI)
-	ze := zipkin.NewExporter(reporter, localEndpoint)
-
+	ze := zipkin.NewExporter(reporter, zipkinEndpoint)
 	trace.RegisterExporter(ze)
 	trace.ApplyConfig(trace.Config{
 		DefaultSampler: trace.ProbabilitySampler(cfg.Zipkin.Probability),
 	})
+
+	tracer, err := openzipkin.NewTracer(reporter, openzipkin.WithLocalEndpoint(zipkinEndpoint))
+	if err != nil {
+		return err
+	}
 
 	defer func() {
 		log.Printf("main : Tracing Stopping : %s", cfg.Zipkin.LocalEndpoint)
@@ -138,21 +143,18 @@ func run() error {
 	// =========================================================================
 	// Start ReaderServer Connection
 	log.Println("main : Started : Initializing server grpc connection")
-	readerConn, err := grpc.Dial(cfg.ReaderServer.APIHost, grpc.WithInsecure())
+
+	readerConn, err := grpc.Dial(cfg.ReaderServer.APIHost, grpc.WithInsecure(), grpc.WithStatsHandler(zipkingrpc.NewClientHandler(tracer)))
 	if err != nil {
 		return errors.Wrap(err, "failed to connect to grpc reader server")
 	}
-	writerConn, err := grpc.Dial(cfg.WriterServer.APIHost, grpc.WithInsecure())
+	writerConn, err := grpc.Dial(cfg.WriterServer.APIHost, grpc.WithInsecure(), grpc.WithStatsHandler(zipkingrpc.NewClientHandler(tracer)))
 	if err != nil {
 		return errors.Wrap(err, "failed to connect to grpc writer server")
 	}
 
-	writerClient := writer.NewWriterClient(readerConn)
-	readerClient := reader.NewReaderClient(writerConn)
-	defer func() {
-		log.Printf("main : GRPC Connection Stopping : %s", cfg.ReaderServer.APIHost)
-		readerConn.Close()
-	}()
+	writerClient := writer.NewWriterClient(writerConn)
+	readerClient := reader.NewReaderClient(readerConn)
 	// =========================================================================
 	// Start Debug Service
 	//
@@ -216,7 +218,10 @@ func run() error {
 			log.Printf("main : Graceful shutdown did not complete in %v : %v", cfg.Web.ShutdownTimeout, err)
 			err = api.Close()
 		}
-
+		log.Printf("main : GRPC Connection Stopping : %s", cfg.ReaderServer.APIHost)
+		readerConn.Close()
+		log.Printf("main : GRPC Connection Stopping : %s", cfg.WriterServer.APIHost)
+		writerConn.Close()
 		// Log the status of this shutdown.
 		switch {
 		case sig == syscall.SIGSTOP:

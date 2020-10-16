@@ -31,23 +31,23 @@ func (c *Check) Health(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}{
 		GatewayVersion: c.build,
 	}
-	wrtResp, err := c.wrt.HealthCheck(ctx, nil)
+	wrtResp, err := c.wrt.HealthCheck(ctx, &writer.HealthCheckRequest{})
 	if err != nil {
 		// If the one of the depending services is not ready we will tell the client and use a 500
 		// status. Do not respond by just returning an error because further up in
 		// the call stack will interpret that as an unhandled error.
 
-		health.Status = "service is not ready"
+		health.Status = err.Error()
 		return web.Respond(ctx, w, health, http.StatusInternalServerError)
 	}
 
-	rdrRest, err := c.rdr.HealthCheck(ctx, nil)
+	rdrRest, err := c.rdr.HealthCheck(ctx, &reader.HealthCheckRequest{})
 	if err != nil {
 		// If the one of the depending services is not ready we will tell the client and use a 500
 		// status. Do not respond by just returning an error because further up in
 		// the call stack will interpret that as an unhandled error.
 
-		health.Status = "service is not ready"
+		health.Status = err.Error()
 		return web.Respond(ctx, w, health, http.StatusInternalServerError)
 	}
 
