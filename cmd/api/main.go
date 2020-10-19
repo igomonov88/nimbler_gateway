@@ -22,7 +22,7 @@ import (
 	"go.opencensus.io/trace"
 	"google.golang.org/grpc"
 
-	handlers "nimbler_gateway/cmd/api/internal/handlers"
+	handlers "github.com/igomonov88/nimbler_gateway/cmd/api/internal/handlers"
 )
 
 /*

@@ -7,7 +7,7 @@ import (
 
 	"go.opencensus.io/trace"
 
-	"nimbler_gateway/internal/platform/web"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/web"
 )
 
 // Errors handles errors coming out of the call chain. It detects normal

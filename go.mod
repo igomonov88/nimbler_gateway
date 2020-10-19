@@ -1,4 +1,4 @@
-module nimbler_gateway
+module github.com/igomonov88/nimbler_gateway
 
 go 1.14
 
@@ -9,7 +9,7 @@ require (
 	github.com/dimfeld/httptreemux/v5 v5.2.2
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/igomonov88/nimbler_reader v1.0.0
-	github.com/igomonov88/nimbler_writer v1.0.1
+	github.com/igomonov88/nimbler_writer v1.0.4
 	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/openzipkin/zipkin-go v0.2.5
 	github.com/pkg/errors v0.9.1

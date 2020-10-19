@@ -8,7 +8,7 @@ import (
 	writer "github.com/igomonov88/nimbler_writer/proto"
 	"go.opencensus.io/trace"
 
-	"nimbler_gateway/internal/platform/web"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/web"
 )
 
 // Check provides support for orchestration health checks.

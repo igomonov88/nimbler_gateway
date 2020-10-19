@@ -8,7 +8,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"nimbler_gateway/internal/platform/web"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/web"
 )
 
 // Panics recovers from panics and converts the panic to an error so it is

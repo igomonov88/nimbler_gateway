@@ -8,7 +8,7 @@ import (
 
 	"go.opencensus.io/trace"
 
-	"nimbler_gateway/internal/platform/web"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/web"
 )
 
 // m contains the global program counters for the application.

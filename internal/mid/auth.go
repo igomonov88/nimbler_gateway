@@ -8,8 +8,8 @@ import (
 
 	"go.opencensus.io/trace"
 
-	"nimbler_gateway/internal/platform/auth"
-	"nimbler_gateway/internal/platform/web"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/auth"
+	"github.com/igomonov88/nimbler_gateway/internal/platform/web"
 )
 
 // ErrForbidden is returned when an authenticated user does not have a
